@@ -42,6 +42,7 @@ defmodule NukeCroma do
           <> "Body: #{inspect body}") end)
           |> then(fn count -> {hd(signature_children) |> elem(0), count} end)
           end)
+          _node -> {nil, 0}
       end)
   end
 
