@@ -7,7 +7,7 @@ defmodule NukeCroma do
   @moduledoc """
   Documentation for `NukeCroma`.
   """
-  def replace_croma_ast(source) do
+  def replace_multiheads(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
     {zipper, head_counts} =
@@ -17,7 +17,7 @@ defmodule NukeCroma do
       |> Z.traverse([], fn node, acc ->
         case collect_multiheads(node) do
           nil -> {node, acc}
-          {func, 0} -> {node, acc}
+          {_func, 0} -> {node, acc}
           res -> {node, [res | acc]}
         end
       end)
@@ -74,19 +74,6 @@ defmodule NukeCroma do
 
 
 
-  defp count_heads_traverse(zipper) do
-    Logger.debug("Leftmost: #{inspect Z.leftmost(zipper) |> Z.right() |> Z.down()}")
-    {_, count} =
-      Z.traverse(zipper, 0, fn
-        %Z{node: {:->, _meta, children}} = node, acc ->
-          {node, acc + 1}
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    count
-  end
 
   def replace_croma(source) do
     source
