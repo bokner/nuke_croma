@@ -28,13 +28,10 @@ defmodule NukeCroma do
             clauses = heads_to_clauses(func_name, heads)
 
             {
-              Z.insert_left(node, spec_node)
-              |> then(fn _z ->
-                Enum.reduce(clauses, node, fn clause, acc -> Z.insert_left(acc, clause) end)
-                |> Z.remove()
-              end),
-              # |> then(fn _ -> Z.up(signature) |> Z.remove() end),
-
+              Enum.reduce(clauses, Z.insert_left(node, spec_node), fn clause, acc ->
+                Z.insert_left(acc, clause)
+              end)
+              |> Z.remove(),
               [node | acc]
             }
         end
