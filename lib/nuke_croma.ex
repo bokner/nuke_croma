@@ -17,7 +17,7 @@ defmodule NukeCroma do
       |> Z.traverse([], fn node, acc ->
         case collect_multiheads(node) do
           nil -> {node, acc}
-          {_func, 0} -> {node, acc}
+          {_func, []} -> {node, acc}
           res -> {node, [res | acc]}
         end
       end)
@@ -28,52 +28,55 @@ defmodule NukeCroma do
     zipper
     |> Z.down()
     |> tap(fn z -> Logger.debug("Signature #{inspect(z)}") end)
-    |> then(fn %Z{node: {:"::", _meta, signature_children}} = signature ->
-      signature
-      |> Z.right()
-      |> Z.down()
-      |> Z.next()
-      |> Z.right()
-      |> then(fn body ->
-          count_heads(body)
-          |> tap(fn count ->
-            count > 0 && Logger.error(
-          "#{inspect(count)} head(s) found in #{inspect(hd(signature_children) |> elem(0))}\n"
-          <> "Body: #{inspect body}") end)
-          |> then(fn count -> {hd(signature_children) |> elem(0), count} end)
+    |> then(fn
+      %Z{node: {:"::", _meta, signature_children}} = signature ->
+        signature
+        |> Z.right()
+        |> Z.down()
+        |> Z.next()
+        |> Z.right()
+        |> then(fn body ->
+          collect_fun_clauses(body)
+          |> tap(fn clauses ->
+            count = length(clauses)
+
+            count > 0 &&
+              Logger.error(
+                "#{inspect(count)} head(s) found in #{inspect(hd(signature_children) |> elem(0))}\n" <>
+                  "Body: #{inspect(body)}"
+              )
           end)
-          _node -> {nil, 0}
-      end)
+          |> then(fn count -> {signature, count} end)
+        end)
+
+      _node ->
+        {nil, 0}
+    end)
   end
 
-  defp collect_multiheads(zipper) do
+  defp collect_multiheads(_zipper) do
     nil
   end
 
-  defp count_heads(body_zipper) do
+  defp collect_fun_clauses(body_zipper) do
     body_zipper
     |> Z.leftmost()
     |> Z.right()
     |> Z.down()
-    |> count_heads(0)
-
+    |> collect_fun_clauses([])
   end
 
-  defp count_heads(nil, count) do
-    count
+  defp collect_fun_clauses(nil, clauses) do
+    clauses
   end
 
-  defp count_heads(%Z{node: {:->, _meta, children}} = sibling, count) do
-    count_heads(Z.right(sibling), count + 1)
+  defp collect_fun_clauses(%Z{node: {:->, _meta, _children}} = sibling, clauses) do
+    collect_fun_clauses(Z.right(sibling), clauses ++ [sibling])
   end
 
-  defp count_heads(sibling, count) do
-    0
+  defp collect_fun_clauses(_sibling, _clauses) do
+    []
   end
-
-
-
-
 
   def replace_croma(source) do
     source
