@@ -10,15 +10,20 @@ defmodule NukeCroma do
   def replace_multiheads(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
-    {zipper, head_counts} =
+    {_zipper, _multihead_funcs} =
       source
       |> Sourceror.parse_string!()
       |> Z.zip()
       |> Z.traverse([], fn node, acc ->
         case collect_multiheads(node) do
-          nil -> {node, acc}
-          {_func, []} -> {node, acc}
-          res -> {node, [res | acc]}
+          nil ->
+            {node, acc}
+
+          {_func, []} ->
+            {node, acc}
+
+          {signature, heads} ->
+            {node, [%{signature: signature, spec: create_spec(signature), clauses: heads} | acc]}
         end
       end)
   end
@@ -76,6 +81,16 @@ defmodule NukeCroma do
 
   defp collect_fun_clauses(_sibling, _clauses) do
     []
+  end
+
+  def create_spec(signature) do
+    ("@spec " <>
+       (Sourceror.to_string(signature)
+        |> String.split(["#Sourceror.Zipper<\n", "#...\n>"])
+        |> Enum.at(1)))
+    |> Sourceror.parse_string!()
+    |> Z.zip()
+    |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
   end
 
   def replace_croma(source) do
