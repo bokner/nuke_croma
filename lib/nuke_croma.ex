@@ -10,7 +10,7 @@ defmodule NukeCroma do
   def replace_multiheads(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
-    {_zipper, _multihead_funcs} =
+    {zipper, _multihead_funcs} =
       source
       |> Sourceror.parse_string!()
       |> Z.zip()
@@ -23,9 +23,11 @@ defmodule NukeCroma do
             {node, acc}
 
           {signature, heads} ->
-            {node, [%{signature: signature, spec: create_spec(signature), clauses: heads} | acc]}
+            spec_node = create_spec(signature)
+            {Z.insert_left(node, spec_node), [%{signature: signature, spec: spec_node, clauses: heads} | acc]}
         end
       end)
+      Z.root(zipper)
   end
 
   defp collect_multiheads(%Z{node: {func_node, _node_meta, _children}} = zipper)
@@ -90,6 +92,7 @@ defmodule NukeCroma do
         |> Enum.at(1)))
     |> Sourceror.parse_string!()
     |> Z.zip()
+    |> Z.root()
     |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
   end
 
