@@ -10,7 +10,7 @@ defmodule NukeCroma do
   def replace_multiheads(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
-    {zipper, _multihead_funcs} =
+    {zipper, multihead_funcs} =
       source
       |> Sourceror.parse_string!()
       |> Z.zip()
@@ -22,12 +22,21 @@ defmodule NukeCroma do
           {_func, []} ->
             {node, acc}
 
-          {signature, heads} ->
+          {%Z{node: {_node, _meta, signature_children}} = signature, heads} ->
+            func_name = hd(signature_children) |> elem(0)
             spec_node = create_spec(signature)
-            {Z.insert_left(node, spec_node), [%{signature: signature, spec: spec_node, clauses: heads} | acc]}
+            clauses = heads_to_clauses(func_name, heads)
+            {
+              Z.insert_left(node, spec_node)
+              |> then(fn z -> Enum.reduce(clauses, z, fn clause, acc -> Z.insert_left(acc, clause) end) end),
+              #|> then(fn _ -> Z.up(signature) |> Z.remove() end),
+
+
+              [%{signature: signature, spec: spec_node, clauses: clauses} | acc]
+            }
         end
       end)
-      Z.root(zipper)
+      {Z.root(zipper), multihead_funcs}
   end
 
   defp collect_multiheads(%Z{node: {func_node, _node_meta, _children}} = zipper)
@@ -87,13 +96,42 @@ defmodule NukeCroma do
 
   def create_spec(signature) do
     ("@spec " <>
-       (Sourceror.to_string(signature)
-        |> String.split(["#Sourceror.Zipper<\n", "#...\n>"])
-        |> Enum.at(1)))
+       zipper_to_source(signature))
     |> Sourceror.parse_string!()
     |> Z.zip()
     |> Z.root()
     |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
+  end
+
+  def heads_to_clauses(func_name, heads) do
+    Enum.map(heads, fn head -> head_to_clause(func_name, head) end)
+  end
+
+  defp head_to_clause(func_name, head) do
+    match = Z.down(head)
+    action = Z.right(match)
+
+    #%{func_name: func_name, match: match, action: action}
+    """
+    def #{func_name}(#{zipper_to_source(match) |> cleanup_match()}) do
+      #{zipper_to_source(action)}
+    end
+    """
+    |> Sourceror.parse_string!()
+    |> Z.zip()
+    |> Z.root()
+  end
+
+  def zipper_to_source(zipper) do
+    zipper
+    |> Z.node()
+    |> Sourceror.to_string()
+  end
+
+  defp cleanup_match(match_source) do
+    match_source
+    |> String.replace_leading("[", "")
+    |> String.replace_trailing("]", "")
   end
 
   def replace_croma(source) do
