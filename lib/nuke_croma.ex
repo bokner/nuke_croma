@@ -26,21 +26,28 @@ defmodule NukeCroma do
             func_name = hd(signature_children) |> elem(0)
             spec_node = create_spec(signature)
             clauses = heads_to_clauses(func_name, heads)
+
             {
               Z.insert_left(node, spec_node)
-              |> then(fn _z -> Enum.reduce(clauses, node, fn clause, acc -> Z.insert_left(acc, clause) end) |> Z.remove() end),
-              #|> then(fn _ -> Z.up(signature) |> Z.remove() end),
-
+              |> then(fn _z ->
+                Enum.reduce(clauses, node, fn clause, acc -> Z.insert_left(acc, clause) end)
+                |> Z.remove()
+              end),
+              # |> then(fn _ -> Z.up(signature) |> Z.remove() end),
 
               [node | acc]
             }
         end
       end)
-      {Z.root(zipper), multihead_funcs}
+
+    {Z.root(zipper), multihead_funcs}
   end
 
-  defp collect_multiheads(%Z{node: {func_node, _node_meta, _children}} = zipper)
-       when func_node in [:defun, :defunp] do
+  defp collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
+       when func_kind in [:defun, :defunp] do
+    # Lazy solution - don't want to drag this through traversal process
+    Process.put(:func_kind, (func_kind == :defun && :def) || :defp)
+
     zipper
     |> Z.down()
     |> tap(fn z -> Logger.debug("Signature #{inspect(z)}") end)
@@ -110,10 +117,10 @@ defmodule NukeCroma do
   defp head_to_clause(func_name, head) do
     match = Z.down(head)
     action = Z.right(match)
+    func_kind = Process.get(:func_kind)
 
-    #%{func_name: func_name, match: match, action: action}
     """
-    def #{func_name}(#{zipper_to_source(match) |> cleanup_match()}) do
+    #{func_kind} #{func_name}(#{zipper_to_source(match) |> cleanup_match()}) do
       #{zipper_to_source(action)}
     end
     """
