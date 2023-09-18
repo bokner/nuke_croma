@@ -25,15 +25,20 @@ defmodule NukeCroma do
           {%Z{node: {_node, _meta, signature_children}} = signature, heads} ->
             func_name = hd(signature_children) |> elem(0)
             spec_node = create_spec(signature)
-            clauses = heads_to_clauses(func_name, heads)
 
-            {
-              Enum.reduce(clauses, Z.insert_left(node, spec_node), fn clause, acc ->
-                Z.insert_left(acc, clause)
-              end)
-              |> Z.remove(),
-              [node | acc]
-            }
+            case heads_to_clauses(func_name, heads) do
+              [] ->
+                {node, acc}
+
+              clauses ->
+                {
+                  Enum.reduce(clauses, Z.insert_left(node, spec_node), fn clause, acc ->
+                    Z.insert_left(acc, clause)
+                  end)
+                  |> Z.remove(),
+                  [node | acc]
+                }
+            end
         end
       end)
 
@@ -101,14 +106,27 @@ defmodule NukeCroma do
   def create_spec(signature) do
     ("@spec " <>
        zipper_to_source(signature))
-    |> Sourceror.parse_string!()
-    |> Z.zip()
-    |> Z.root()
-    |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
+    |> Sourceror.parse_string()
+    |> then(fn
+      {:ok, ast} ->
+        ast
+        |> Z.zip()
+        |> Z.root()
+        |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
+
+      {:error, error} ->
+        {:error, error}
+    end)
   end
 
   def heads_to_clauses(func_name, heads) do
-    Enum.map(heads, fn head -> head_to_clause(func_name, head) end)
+    Enum.reduce_while(heads, [], fn head, acc ->
+      case head_to_clause(func_name, head) do
+        {:error, error} -> {:halt, []}
+        clause -> {:cont, [clause | acc]}
+      end
+    end)
+    |> Enum.reverse()
   end
 
   defp head_to_clause(func_name, head) do
@@ -121,9 +139,17 @@ defmodule NukeCroma do
       #{zipper_to_source(action)}
     end
     """
-    |> Sourceror.parse_string!()
-    |> Z.zip()
-    |> Z.root()
+    |> Sourceror.parse_string()
+    |> then(fn
+      {:ok, ast} ->
+        ast
+        |> Z.zip()
+        |> Z.root()
+
+      {:error, error} ->
+        Logger.error("Head-to-clause error: #{inspect(error)}")
+        {:error, error}
+    end)
   end
 
   def zipper_to_source(zipper) do
