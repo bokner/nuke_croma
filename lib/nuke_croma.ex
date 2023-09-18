@@ -108,7 +108,14 @@ defmodule NukeCroma do
   end
 
   def heads_to_clauses(func_name, heads) do
-    Enum.map(heads, fn head -> head_to_clause(func_name, head) end)
+    Enum.filter(heads, fn head ->
+      case head_to_clause(func_name, head) do
+        {:error, error} ->
+          Logger.error("Head-to-clause (#{inspect func_name} - #{inspect head}): #{inspect error}")
+          false
+        _ -> true
+      end
+    end)
   end
 
   defp head_to_clause(func_name, head) do
@@ -121,9 +128,13 @@ defmodule NukeCroma do
       #{zipper_to_source(action)}
     end
     """
-    |> Sourceror.parse_string!()
-    |> Z.zip()
-    |> Z.root()
+    |> Sourceror.parse_string()
+    |> then(fn {:ok, ast} ->
+      ast
+      |> Z.zip()
+      |> Z.root()
+      error -> error
+    end)
   end
 
   def zipper_to_source(zipper) do
