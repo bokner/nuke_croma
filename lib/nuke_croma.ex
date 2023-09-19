@@ -61,7 +61,7 @@ defmodule NukeCroma do
 
     zipper
     |> Z.down()
-    |> tap(fn z -> Logger.debug("Signature #{inspect(z)}") end)
+    # |> tap(fn z -> Logger.debug("Signature #{inspect(z)}") end)
     |> then(fn
       %Z{node: {:"::", _meta, signature_children}} = signature ->
         signature
@@ -137,13 +137,14 @@ defmodule NukeCroma do
     |> Enum.reverse()
   end
 
-  defp head_to_clause(func_name, head) do
+  def head_to_clause(func_name, head) do
     match = Z.down(head)
     action = Z.right(match)
     func_kind = Process.get(:func_kind)
+    {func_args, guard} = parse_match(match)
 
     """
-    #{func_kind} #{func_name}(#{zipper_to_source(match) |> cleanup_match()}) do
+    #{func_kind} #{func_name}(#{func_args}) #{guard} do
       #{zipper_to_source(action)}
     end
     """
@@ -166,10 +167,30 @@ defmodule NukeCroma do
     |> Sourceror.to_string()
   end
 
-  defp cleanup_match(match_source) do
-    match_source
-    |> String.replace_leading("[", "")
-    |> String.replace_trailing("]", "")
+  defp parse_match(match) do
+    case Z.down(match) do
+      # Single argument
+      nil ->
+        {[match], nil}
+
+      # With guard
+      %Z{node: {:when, _meta, children}} ->
+        [guard | args] = Enum.reverse(children)
+        {Enum.reverse(args), guard}
+
+      # Single argument again
+      %Z{node: {node, _meta, nil}} ->
+        {[node], nil}
+
+      %Z{node: {_node, _meta, children}} ->
+        {children, nil}
+    end
+    |> then(fn {args, guard} ->
+      {
+        Enum.map(args, fn arg -> Sourceror.to_string(arg) end) |> Enum.join(", "),
+        (guard && "when " <> Sourceror.to_string(guard)) || ""
+      }
+    end)
   end
 
   def replace_croma(source) do
