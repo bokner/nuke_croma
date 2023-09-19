@@ -10,39 +10,48 @@ defmodule NukeCroma do
   def replace_multiheads(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
-    {zipper, multihead_funcs} =
+    {zipper, multihead_func_count} =
       source
       |> Sourceror.parse_string!()
       |> Z.zip()
-      |> Z.traverse([], fn node, acc ->
+      |> Z.traverse(0, fn node, acc ->
         case collect_multiheads(node) do
           nil ->
             {node, acc}
 
-          {_func, []} ->
+          {_func, 0} ->
             {node, acc}
 
           {%Z{node: {_node, _meta, signature_children}} = signature, heads} ->
             func_name = hd(signature_children) |> elem(0)
-            spec_node = create_spec(signature)
 
             case heads_to_clauses(func_name, heads) do
               [] ->
                 {node, acc}
 
               clauses ->
+                spec_node = create_spec(signature)
+
                 {
                   Enum.reduce(clauses, Z.insert_left(node, spec_node), fn clause, acc ->
                     Z.insert_left(acc, clause)
                   end)
                   |> Z.remove(),
-                  [node | acc]
+                  acc + 1
                 }
             end
         end
       end)
 
-    {Z.root(zipper), multihead_funcs}
+    case multihead_func_count do
+      0 ->
+        {source, 0}
+
+      count ->
+        {zipper
+         |> Z.root()
+         |> Sourceror.to_string(), count}
+    end
   end
 
   defp collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
@@ -67,8 +76,7 @@ defmodule NukeCroma do
 
             count > 0 &&
               Logger.error(
-                "#{inspect(count)} head(s) found in #{inspect(hd(signature_children) |> elem(0))}\n" <>
-                  "Body: #{inspect(body)}"
+                "#{inspect(count)} head(s) found in #{inspect(hd(signature_children) |> elem(0))}\n"
               )
           end)
           |> then(fn count -> {signature, count} end)
@@ -122,7 +130,7 @@ defmodule NukeCroma do
   def heads_to_clauses(func_name, heads) do
     Enum.reduce_while(heads, [], fn head, acc ->
       case head_to_clause(func_name, head) do
-        {:error, error} -> {:halt, []}
+        {:error, _error} -> {:halt, []}
         clause -> {:cont, [clause | acc]}
       end
     end)
@@ -147,7 +155,7 @@ defmodule NukeCroma do
         |> Z.root()
 
       {:error, error} ->
-        Logger.error("Head-to-clause error: #{inspect(error)}")
+        Logger.error("Head-to-clause error (#{inspect(func_name)}): #{inspect(error)}")
         {:error, error}
     end)
   end
