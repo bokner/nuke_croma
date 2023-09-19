@@ -54,8 +54,8 @@ defmodule NukeCroma do
     end
   end
 
-  defp collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
-       when func_kind in [:defun, :defunp] do
+  def collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
+      when func_kind in [:defun, :defunp] do
     # Lazy solution - don't want to drag this through traversal process
     Process.put(:func_kind, (func_kind == :defun && :def) || :defp)
 
@@ -86,8 +86,12 @@ defmodule NukeCroma do
     end)
   end
 
-  defp collect_multiheads(_zipper) do
+  def collect_multiheads(_zipper) do
     nil
+  end
+
+  defp collect_fun_clauses(%Z{node: {:fn, _meta, _children}}) do
+    []
   end
 
   defp collect_fun_clauses(body_zipper) do
