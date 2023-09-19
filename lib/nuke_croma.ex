@@ -112,7 +112,7 @@ defmodule NukeCroma do
 
   def create_spec(signature) do
     ("@spec " <>
-       zipper_to_source(signature))
+       patch_spec(signature))
     |> Sourceror.parse_string()
     |> then(fn
       {:ok, ast} ->
@@ -123,6 +123,33 @@ defmodule NukeCroma do
       {:error, error} ->
         {:error, error}
     end)
+  end
+
+  def patch_spec(signature) do
+    %Z{node: {_signature_node, _meta, signature_children}} = signature |> Z.down()
+
+    patches =
+      Enum.map(signature_children, fn c -> Sourceror.to_string(c) |> patch_spec_argument() end)
+
+    original_source = zipper_to_source(signature)
+
+    Enum.reduce(patches, original_source, fn {orig, patched}, acc ->
+      String.replace(acc, orig, patched)
+    end)
+  end
+
+  defp patch_spec_argument(arg_string) do
+    delimiter = " :: "
+    [arg_name, arg_spec] = String.split(arg_string, delimiter)
+
+    patched_arg_name =
+      if String.match?(arg_name, ~r{^[a-z]}) do
+        arg_name
+      else
+        "_"
+      end
+
+    {arg_string, patched_arg_name <> delimiter <> arg_spec}
   end
 
   def heads_to_clauses(func_name, heads) do
