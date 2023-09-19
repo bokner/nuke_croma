@@ -174,24 +174,21 @@ defmodule NukeCroma do
       # With guard
       %Z{node: {:when, _meta, children}} ->
         [guard | args] = Enum.reverse(children)
-        {Enum.reverse(args), guard}
 
-      # Single argument again
-      %Z{node: {node, _meta, nil}} ->
-        {[to_string(node)], nil}
+        {
+          args
+          |> Enum.reverse()
+          |> Enum.map(fn arg -> Sourceror.to_string(arg) end)
+          |> Enum.join(", "),
+          "when " <> Sourceror.to_string(guard)
+        }
 
-      %Z{node: {_node, _meta, children}} ->
-        {children, nil}
+      %Z{} = _z ->
+        {match
+         |> Z.node()
+         |> Sourceror.to_string()
+         |> clean_source(), ""}
     end
-    |> then(fn {args, guard} ->
-      {
-        Enum.map(args, fn arg ->
-          (is_binary(arg) && arg) || Sourceror.to_string(arg)
-        end)
-        |> Enum.join(", "),
-        (guard && "when " <> Sourceror.to_string(guard)) || ""
-      }
-    end)
   end
 
   def replace_croma(source) do
@@ -238,5 +235,11 @@ defmodule NukeCroma do
       |> Enum.reverse()
 
     func_name <> "(" <> Enum.join(args, ", ") <> ")" <> " do\n"
+  end
+
+  defp clean_source(source) do
+    source
+    |> String.replace_leading("[", "")
+    |> String.replace_trailing("]", "")
   end
 end
