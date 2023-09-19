@@ -61,7 +61,6 @@ defmodule NukeCroma do
 
     zipper
     |> Z.down()
-    # |> tap(fn z -> Logger.debug("Signature #{inspect(z)}") end)
     |> then(fn
       %Z{node: {:"::", _meta, signature_children}} = signature ->
         signature
@@ -120,7 +119,6 @@ defmodule NukeCroma do
         ast
         |> Z.zip()
         |> Z.root()
-        |> tap(fn spec_node -> Logger.debug("Specs: #{inspect(spec_node)}") end)
 
       {:error, error} ->
         {:error, error}
@@ -180,14 +178,17 @@ defmodule NukeCroma do
 
       # Single argument again
       %Z{node: {node, _meta, nil}} ->
-        {[node], nil}
+        {[to_string(node)], nil}
 
       %Z{node: {_node, _meta, children}} ->
         {children, nil}
     end
     |> then(fn {args, guard} ->
       {
-        Enum.map(args, fn arg -> Sourceror.to_string(arg) end) |> Enum.join(", "),
+        Enum.map(args, fn arg ->
+          (is_binary(arg) && arg) || Sourceror.to_string(arg)
+        end)
+        |> Enum.join(", "),
         (guard && "when " <> Sourceror.to_string(guard)) || ""
       }
     end)
