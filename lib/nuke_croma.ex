@@ -69,7 +69,7 @@ defmodule NukeCroma do
   def collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
       when func_kind in [:defun, :defunp] do
     # Lazy solution - don't want to drag this through traversal process
-    Process.put(:func_kind, (func_kind == :defun && :def) || :defp)
+    save_func_kind(func_kind)
 
     zipper
     |> Z.down()
@@ -124,6 +124,14 @@ defmodule NukeCroma do
 
   defp collect_fun_clauses(_sibling, _clauses) do
     []
+  end
+
+  defp save_func_kind(func_kind) do
+    Process.put(:func_kind, (func_kind == :defun && :def) || :defp)
+  end
+
+  def get_func_kind() do
+    Process.get(:func_kind)
   end
 
   def create_spec(signature) do
@@ -191,7 +199,7 @@ defmodule NukeCroma do
 
   defp make_default_header(func_name, func_arguments) do
     arg_string = Enum.join(func_arguments, ", ")
-    header_str = "def #{func_name}(#{arg_string})"
+    header_str = "#{get_func_kind()} #{func_name}(#{arg_string})"
     Sourceror.parse_string!(header_str)
   end
 
@@ -211,7 +219,7 @@ defmodule NukeCroma do
   def head_to_clause(func_name, head) do
     match = Z.down(head)
     action = Z.right(match)
-    func_kind = Process.get(:func_kind)
+    func_kind = get_func_kind()
     {func_args, guard} = parse_match(match)
 
     """
