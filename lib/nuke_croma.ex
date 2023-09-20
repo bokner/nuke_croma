@@ -4,6 +4,9 @@ defmodule NukeCroma do
 
   alias Sourceror.Zipper, as: Z
 
+  @spec_delimiter " :: "
+  @default_value_delimiter ~S" \\ "
+
   @moduledoc """
   Documentation for `NukeCroma`.
   """
@@ -29,11 +32,20 @@ defmodule NukeCroma do
               [] ->
                 {node, acc}
 
+              :error ->
+                Logger.error("Error ")
+                {node, acc}
+
               clauses ->
-                spec_node = create_spec(signature)
+                {function_arg_names, spec_node} = create_spec(signature)
+
+                initial_node =
+                  node
+                  |> Z.insert_left(spec_node)
+                  |> maybe_insert_default_header(func_name, function_arg_names)
 
                 {
-                  Enum.reduce(clauses, Z.insert_left(node, spec_node), fn clause, acc ->
+                  Enum.reduce(clauses, initial_node, fn clause, acc ->
                     Z.insert_left(acc, clause)
                   end)
                   |> Z.remove(),
@@ -115,18 +127,20 @@ defmodule NukeCroma do
   end
 
   def create_spec(signature) do
-    ("@spec " <>
-       patch_spec(signature))
-    |> Sourceror.parse_string()
-    |> then(fn
-      {:ok, ast} ->
-        ast
-        |> Z.zip()
-        |> Z.root()
+    {function_args, patched_spec} = patch_spec(signature)
 
-      {:error, error} ->
-        {:error, error}
-    end)
+    {function_args,
+     ("@spec " <> patched_spec)
+     |> Sourceror.parse_string()
+     |> then(fn
+       {:ok, ast} ->
+         ast
+         |> Z.zip()
+         |> Z.root()
+
+       {:error, error} ->
+         {:error, error}
+     end)}
   end
 
   def patch_spec(signature) do
@@ -137,23 +151,48 @@ defmodule NukeCroma do
 
     original_source = zipper_to_source(signature)
 
-    Enum.reduce(patches, original_source, fn {orig, patched}, acc ->
-      String.replace(acc, orig, patched)
-    end)
+    {args, updated_source} =
+      Enum.reduce(patches, {[], original_source}, fn {arg_name, orig, patched},
+                                                     {arg_names, acc} ->
+        {[arg_name | arg_names], String.replace(acc, orig, patched)}
+      end)
+
+    {Enum.reverse(args), updated_source}
   end
 
-  defp patch_spec_argument(arg_string) do
-    delimiter = " :: "
-    [arg_name, arg_spec] = String.split(arg_string, delimiter)
+  defp patch_spec_argument(original) do
+    [arg_name, arg_spec] = String.split(original, @spec_delimiter)
 
-    patched_arg_name =
+    {default_value, patched_specs} =
       if String.match?(arg_name, ~r{^[a-z]}) do
-        arg_name
+        arg_name <> @spec_delimiter <> arg_spec
       else
-        "_"
+        arg_spec
       end
+      |> remove_default_value()
 
-    {arg_string, patched_arg_name <> delimiter <> arg_spec}
+    {arg_name <> default_value, original, patched_specs}
+  end
+
+  defp remove_default_value(spec) do
+    case String.split(spec, @default_value_delimiter) do
+      [s, value] -> {@default_value_delimiter <> value, s}
+      [s] -> {"", s}
+    end
+  end
+
+  defp maybe_insert_default_header(node, func_name, func_arguments) do
+    if Enum.any?(func_arguments, fn arg -> String.contains?(arg, @default_value_delimiter) end) do
+      Z.insert_left(node, make_default_header(func_name, func_arguments))
+    else
+      node
+    end
+  end
+
+  defp make_default_header(func_name, func_arguments) do
+    arg_string = Enum.join(func_arguments, ", ")
+    header_str = "def #{func_name}(#{arg_string})"
+    Sourceror.parse_string!(header_str)
   end
 
   def heads_to_clauses(func_name, heads) do
@@ -163,7 +202,10 @@ defmodule NukeCroma do
         clause -> {:cont, [clause | acc]}
       end
     end)
-    |> Enum.reverse()
+    |> then(fn
+      :error -> :error
+      clauses -> Enum.reverse(clauses)
+    end)
   end
 
   def head_to_clause(func_name, head) do
