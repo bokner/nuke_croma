@@ -171,7 +171,7 @@ defmodule NukeCroma do
   defp patch_spec_argument(original) do
     [arg_name, arg_spec] =
       case String.split(original, @spec_delimiter) do
-        [spec] -> ["_arg", spec]
+        [arg_or_spec] -> handle_arg_or_spec(arg_or_spec)
         [arg, spec] -> [arg, spec]
       end
 
@@ -205,6 +205,14 @@ defmodule NukeCroma do
     arg_string = Enum.join(func_arguments, ", ")
     header_str = "#{get_func_kind()} #{func_name}(#{arg_string})"
     Sourceror.parse_string!(header_str)
+  end
+
+  defp handle_arg_or_spec(arg_or_spec) do
+    if String.contains?(arg_or_spec, "()") do
+      ["_arg", arg_or_spec]
+    else
+      [arg_or_spec, "any()"]
+    end
   end
 
   def heads_to_clauses(func_name, heads) do
