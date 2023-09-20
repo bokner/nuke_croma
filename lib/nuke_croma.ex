@@ -33,7 +33,7 @@ defmodule NukeCroma do
                 {node, acc}
 
               :error ->
-                Logger.error("Error ")
+                # Logger.error("Head-to-clause error in #{func_name}")
                 {node, acc}
 
               clauses ->
@@ -218,7 +218,7 @@ defmodule NukeCroma do
   def heads_to_clauses(func_name, heads) do
     Enum.reduce_while(heads, [], fn head, acc ->
       case head_to_clause(func_name, head) do
-        {:error, _error} -> {:halt, []}
+        {:error, _error} -> {:halt, :error}
         clause -> {:cont, [clause | acc]}
       end
     end)
@@ -234,11 +234,21 @@ defmodule NukeCroma do
     func_kind = get_func_kind()
     {func_args, guard} = parse_match(match)
 
-    """
-    #{func_kind} #{func_name}(#{func_args}) #{guard} do
-      #{zipper_to_source(action)}
-    end
-    """
+    clause =
+      """
+      #{func_kind} #{func_name}(#{func_args}) #{guard} do
+        #{zipper_to_source(action)}
+      end
+      """
+
+    clause
+    |> tap(fn _ ->
+      Logger.debug("""
+      Head: #{inspect(head)}
+      Clause: #{inspect(clause)}
+      Match" #{inspect(match)}
+      """)
+    end)
     |> Sourceror.parse_string()
     |> then(fn
       {:ok, ast} ->
@@ -247,7 +257,10 @@ defmodule NukeCroma do
         |> Z.root()
 
       {:error, error} ->
-        Logger.error("Head-to-clause error (#{inspect(func_name)}): #{inspect(error)}")
+        Logger.error("""
+        Head-to-clause error (#{inspect(func_name)}): #{inspect(error)}
+        """)
+
         {:error, error}
     end)
   end
@@ -279,8 +292,9 @@ defmodule NukeCroma do
       %Z{} = _z ->
         {match
          |> Z.node()
-         |> Sourceror.to_string()
-         |> clean_source(), ""}
+         |> Z.children()
+         |> Enum.map(fn c -> Sourceror.to_string(c) end)
+         |> Enum.join(", "), ""}
     end
   end
 
@@ -328,11 +342,5 @@ defmodule NukeCroma do
       |> Enum.reverse()
 
     func_name <> "(" <> Enum.join(args, ", ") <> ")" <> " do\n"
-  end
-
-  defp clean_source(source) do
-    source
-    |> String.replace_leading("[", "")
-    |> String.replace_trailing("]", "")
   end
 end
