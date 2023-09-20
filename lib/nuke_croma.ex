@@ -169,7 +169,11 @@ defmodule NukeCroma do
   end
 
   defp patch_spec_argument(original) do
-    [arg_name, arg_spec] = String.split(original, @spec_delimiter)
+    [arg_name, arg_spec] =
+      case String.split(original, @spec_delimiter) do
+        [spec] -> ["_arg", spec]
+        [arg, spec] -> [arg, spec]
+      end
 
     {default_value, patched_specs} =
       if String.match?(arg_name, ~r{^[a-z]}) do
