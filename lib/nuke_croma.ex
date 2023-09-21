@@ -18,6 +18,8 @@ defmodule NukeCroma do
       |> Sourceror.parse_string!()
       |> Z.zip()
       |> Z.traverse(0, fn node, acc ->
+        node = Macro.expand(node, __ENV__)
+
         case collect_multiheads(node) do
           nil ->
             {node, acc}
@@ -29,8 +31,8 @@ defmodule NukeCroma do
             func_name = hd(signature_children) |> elem(0)
 
             case heads_to_clauses(func_name, heads) do
-              [] ->
-                {node, acc}
+              # [] ->
+              #   {node, acc}
 
               :error ->
                 # Logger.error("Head-to-clause error in #{func_name}")
@@ -39,13 +41,22 @@ defmodule NukeCroma do
               clauses ->
                 {function_arg_names, spec_node} = create_spec(signature)
 
+
                 initial_node =
                   node
                   |> Z.insert_left(spec_node)
                   |> maybe_insert_default_header(func_name, function_arg_names)
 
+                  defun_replacement =
+                  if length(clauses) > 0 do
+                    clauses
+                  else
+                    [upgrade_to_def(node, func_name, function_arg_names)]
+                  end
+
                 {
-                  Enum.reduce(clauses, initial_node, fn clause, acc ->
+
+                  Enum.reduce(defun_replacement, initial_node, fn clause, acc ->
                     Z.insert_left(acc, clause)
                   end)
                   |> Z.remove(),
@@ -124,6 +135,20 @@ defmodule NukeCroma do
 
   defp collect_fun_clauses(_sibling, _clauses) do
     []
+  end
+
+  def upgrade_to_def(%Z{node: {_fun_type, _, _children}} = node, func_name, function_arg_names) do
+    func_body = node |> Z.down() |> Z.right() |> Z.next() |> Z.next() |> Z.right() |> zipper_to_source()
+    func_args = Enum.join(function_arg_names, ", ")
+    func_source =
+    """
+    #{get_func_kind()} #{func_name}(#{func_args}) do
+      #{func_body}
+    end
+    """
+    Logger.error("function source: #{func_source}")
+    #node
+    Sourceror.parse_string!(func_source)
   end
 
   defp save_func_kind(func_kind) do
@@ -242,13 +267,6 @@ defmodule NukeCroma do
       """
 
     clause
-    |> tap(fn _ ->
-      Logger.debug("""
-      Head: #{inspect(head)}
-      Clause: #{inspect(clause)}
-      Match" #{inspect(match)}
-      """)
-    end)
     |> Sourceror.parse_string()
     |> then(fn
       {:ok, ast} ->
@@ -271,7 +289,7 @@ defmodule NukeCroma do
     |> Sourceror.to_string()
   end
 
-  defp parse_match(match) do
+  def parse_match(match) do
     case Z.down(match) do
       # Single argument
       nil ->
@@ -284,7 +302,8 @@ defmodule NukeCroma do
         {
           args
           |> Enum.reverse()
-          |> Enum.map(fn arg -> Sourceror.to_string(arg) end)
+          |> Enum.map(fn arg ->
+            Sourceror.to_string(arg) end)
           |> Enum.join(", "),
           "when " <> Sourceror.to_string(guard)
         }
@@ -298,49 +317,4 @@ defmodule NukeCroma do
     end
   end
 
-  def replace_croma(source) do
-    source
-    |> String.split(~r{defun |defunp |do\n}, include_captures: true)
-    |> Enum.reduce({"", nil, false, nil}, fn chunk,
-                                             {buffer, defun?, in_croma, signature} = _acc ->
-      case chunk do
-        "defun " ->
-          {buffer, true, true, nil}
-
-        "defunp " ->
-          {buffer, false, true, nil}
-
-        "do\n" when in_croma ->
-          {buffer <> complete_croma_call(defun?, signature), nil, false, nil}
-
-        s when in_croma ->
-          {buffer, defun?, true, s}
-
-        outside_croma ->
-          {buffer <> outside_croma, nil, false, nil}
-      end
-    end)
-    |> elem(0)
-  end
-
-  defp complete_croma_call(defun?, croma_signature) do
-    "@spec " <>
-      croma_signature <>
-      "\n" <> ((defun? && "def ") || "defp ") <> func_signature(croma_signature)
-  end
-
-  def func_signature(croma_signature) do
-    [func_name | croma_chunks] =
-      String.split(croma_signature, ~r{([^\w\?\!\%])+}, include_captures: true)
-
-    args =
-      Enum.reduce(croma_chunks, {[], nil}, fn
-        " :: ", {buffer, prev} -> {[prev | buffer], nil}
-        chunk, {buffer, _prev} -> {buffer, chunk}
-      end)
-      |> elem(0)
-      |> Enum.reverse()
-
-    func_name <> "(" <> Enum.join(args, ", ") <> ")" <> " do\n"
-  end
 end
