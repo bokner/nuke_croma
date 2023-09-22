@@ -41,21 +41,21 @@ defmodule NukeCroma do
               clauses ->
                 {function_arg_names, spec_node} = create_spec(signature)
 
+                multiple_clauses? = length(clauses) > 0
 
                 initial_node =
                   node
                   |> Z.insert_left(spec_node)
-                  |> maybe_insert_default_header(func_name, function_arg_names)
+                  |> maybe_insert_default_header(func_name, function_arg_names, multiple_clauses?)
 
-                  defun_replacement =
-                  if length(clauses) > 0 do
+                defun_replacement =
+                  if multiple_clauses? do
                     clauses
                   else
                     [upgrade_to_def(node, func_name, function_arg_names)]
                   end
 
                 {
-
                   Enum.reduce(defun_replacement, initial_node, fn clause, acc ->
                     Z.insert_left(acc, clause)
                   end)
@@ -138,16 +138,18 @@ defmodule NukeCroma do
   end
 
   def upgrade_to_def(%Z{node: {_fun_type, _, _children}} = node, func_name, function_arg_names) do
-    func_body = node |> Z.down() |> Z.right() |> Z.next() |> Z.next() |> Z.right() |> zipper_to_source()
+    func_body =
+      node |> Z.down() |> Z.right() |> Z.next() |> Z.next() |> Z.right() |> zipper_to_source()
+
     func_args = Enum.join(function_arg_names, ", ")
+
     func_source =
-    """
-    #{get_func_kind()} #{func_name}(#{func_args}) do
-      #{func_body}
-    end
-    """
-    Logger.error("function source: #{func_source}")
-    #node
+      """
+      #{get_func_kind()} #{func_name}(#{func_args}) do
+        #{func_body}
+      end
+      """
+
     Sourceror.parse_string!(func_source)
   end
 
@@ -218,7 +220,11 @@ defmodule NukeCroma do
     end
   end
 
-  defp maybe_insert_default_header(node, func_name, func_arguments) do
+  defp maybe_insert_default_header(node, _func_name, _func_arguments, false) do
+    node
+  end
+
+  defp maybe_insert_default_header(node, func_name, func_arguments, true) do
     if Enum.any?(func_arguments, fn arg -> String.contains?(arg, @default_value_delimiter) end) do
       Z.insert_left(node, make_default_header(func_name, func_arguments))
     else
@@ -303,7 +309,8 @@ defmodule NukeCroma do
           args
           |> Enum.reverse()
           |> Enum.map(fn arg ->
-            Sourceror.to_string(arg) end)
+            Sourceror.to_string(arg)
+          end)
           |> Enum.join(", "),
           "when " <> Sourceror.to_string(guard)
         }
@@ -316,5 +323,4 @@ defmodule NukeCroma do
          |> Enum.join(", "), ""}
     end
   end
-
 end
