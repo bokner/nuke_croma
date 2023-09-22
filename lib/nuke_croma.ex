@@ -4,7 +4,7 @@ defmodule NukeCroma do
 
   alias Sourceror.Zipper, as: Z
 
-  @spec_delimiter " ::"
+  @spec_delimiter " :: "
   @default_value_delimiter ~S" \\"
 
   @moduledoc """
@@ -179,43 +179,61 @@ defmodule NukeCroma do
 
   def patch_spec(signature) do
     %Z{node: {_signature_node, _meta, signature_children}} = signature |> Z.down()
+    ## Collect original spec sources
+    original_specs =
+      Enum.map(signature_children, fn c ->
+        c
+        |> Sourceror.to_string()
+        |> normalize_specs()
+      end)
 
-    patches =
-      Enum.map(signature_children, fn c -> Sourceror.to_string(c) |> patch_spec_argument() end)
+    # Logger.error("Originals: #{inspect Enum.join(original_specs, ", ")}")
 
-    original_source = zipper_to_source(signature)
+    children_to_list = fn els ->
+      Enum.map(els, fn el -> Sourceror.to_string(el) end)
+    end
 
+    args_and_specs =
+      Enum.map(
+        signature_children,
+        fn
+          {:"::", _, els} ->
+            [arg, spec] = children_to_list.(els)
+            [arg, adjust_spec(spec, arg)]
+
+          {:"\\\\", _, els} ->
+            [arg, spec, default_value] =
+              Enum.flat_map(els, fn {_, _, e} -> children_to_list.(e) end)
+
+            [arg <> @default_value_delimiter <> default_value, adjust_spec(spec, arg)]
+        end
+      )
+
+    original_source = zipper_to_source(signature) |> normalize_specs
+    # ## Update and collect args
     {args, updated_source} =
-      Enum.reduce(patches, {[], original_source}, fn {arg_name, orig, patched},
-                                                     {arg_names, acc} ->
-        {[arg_name | arg_names], String.replace(acc, orig, patched)}
+      Enum.reduce(Enum.zip(original_specs, args_and_specs), {[], original_source}, fn {orig,
+                                                                                       [arg, spec]},
+                                                                                      {args,
+                                                                                       source_acc} ->
+        {[arg | args], String.replace(source_acc, orig, spec)}
       end)
 
     {Enum.reverse(args), updated_source}
   end
 
-  defp patch_spec_argument(original) do
-    [arg_name, arg_spec] =
-      case String.split(original, @spec_delimiter) do
-        [arg_or_spec] -> handle_arg_or_spec(arg_or_spec)
-        [arg, spec] -> [arg, spec]
-      end
-
-    {default_value, patched_specs} =
-      if String.match?(arg_name, ~r{^[a-z]}) do
-        arg_name <> @spec_delimiter <> arg_spec
-      else
-        arg_spec
-      end
-      |> remove_default_value()
-
-    {arg_name <> default_value, original, patched_specs}
+  defp normalize_specs(spec_str) do
+    String.split(spec_str, " ::")
+    |> Enum.map(&String.trim/1)
+    |> Enum.join(@spec_delimiter)
   end
 
-  defp remove_default_value(spec) do
-    case String.split(spec, @default_value_delimiter) do
-      [s, value] -> {@default_value_delimiter <> value, s}
-      [s] -> {"", s}
+  def adjust_spec(spec, arg) do
+    if String.match?(arg, ~r{^[a-z]}) do
+      arg <> @spec_delimiter <> spec
+      # spec
+    else
+      spec
     end
   end
 
@@ -235,14 +253,6 @@ defmodule NukeCroma do
     arg_string = Enum.join(func_arguments, ", ")
     header_str = "#{get_func_kind()} #{func_name}(#{arg_string})"
     Sourceror.parse_string!(header_str)
-  end
-
-  defp handle_arg_or_spec(arg_or_spec) do
-    if String.contains?(arg_or_spec, "()") do
-      ["_arg", arg_or_spec]
-    else
-      [arg_or_spec, "any()"]
-    end
   end
 
   def heads_to_clauses(func_name, heads) do
