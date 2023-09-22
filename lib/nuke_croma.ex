@@ -190,7 +190,7 @@ defmodule NukeCroma do
       children_to_list = fn els, spec_name ->
       case els do
         nil -> [to_string(spec_name)]
-        [] -> [to_string(spec_name) <> "()"]
+        [] -> [to_string(spec_name)]
         list -> Enum.map(list, fn el -> Sourceror.to_string(el) end)
       end
     end
