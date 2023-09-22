@@ -4,8 +4,8 @@ defmodule NukeCroma do
 
   alias Sourceror.Zipper, as: Z
 
-  @spec_delimiter " :: "
-  @default_value_delimiter ~S" \\ "
+  @spec_delimiter " ::"
+  @default_value_delimiter ~S" \\"
 
   @moduledoc """
   Documentation for `NukeCroma`.
@@ -35,7 +35,6 @@ defmodule NukeCroma do
               #   {node, acc}
 
               :error ->
-                # Logger.error("Head-to-clause error in #{func_name}")
                 {node, acc}
 
               clauses ->
@@ -97,7 +96,7 @@ defmodule NukeCroma do
             count = length(clauses)
 
             count > 0 &&
-              Logger.error(
+              Logger.debug(
                 "#{inspect(count)} head(s) found in #{inspect(hd(signature_children) |> elem(0))}\n"
               )
           end)
