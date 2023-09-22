@@ -187,10 +187,12 @@ defmodule NukeCroma do
         |> normalize_specs()
       end)
 
-    # Logger.error("Originals: #{inspect Enum.join(original_specs, ", ")}")
-
-    children_to_list = fn els ->
-      Enum.map(els, fn el -> Sourceror.to_string(el) end)
+      children_to_list = fn els, spec_name ->
+      case els do
+        nil -> [to_string(spec_name)]
+        [] -> [to_string(spec_name) <> "()"]
+        list -> Enum.map(list, fn el -> Sourceror.to_string(el) end)
+      end
     end
 
     args_and_specs =
@@ -198,28 +200,36 @@ defmodule NukeCroma do
         signature_children,
         fn
           {:"::", _, els} ->
-            [arg, spec] = children_to_list.(els)
+            [arg, spec] = children_to_list.(els, nil)
             [arg, adjust_spec(spec, arg)]
 
           {:"\\\\", _, els} ->
-            [arg, spec, default_value] =
-              Enum.flat_map(els, fn {_, _, e} -> children_to_list.(e) end)
-
-            [arg <> @default_value_delimiter <> default_value, adjust_spec(spec, arg)]
+            case Enum.flat_map(els, fn {spec_name, _, e} ->
+              children_to_list.(e, spec_name) end) do
+              [arg, spec, default_value] ->
+                [arg_with_default(arg, default_value), adjust_spec(spec, arg)]
+              [arg, default_value] ->
+                [arg_with_default(arg, default_value), "any()"]
+              end
         end
       )
 
     original_source = zipper_to_source(signature) |> normalize_specs
     # ## Update and collect args
     {args, updated_source} =
-      Enum.reduce(Enum.zip(original_specs, args_and_specs), {[], original_source}, fn {orig,
-                                                                                       [arg, spec]},
-                                                                                      {args,
-                                                                                       source_acc} ->
-        {[arg | args], String.replace(source_acc, orig, spec)}
-      end)
+      Enum.reduce(
+        Enum.zip(original_specs, args_and_specs),
+        {[], original_source},
+        fn {orig, [arg, spec]}, {args, source_acc} ->
+          {[arg | args], String.replace(source_acc, orig, spec)}
+        end
+      )
 
     {Enum.reverse(args), updated_source}
+  end
+
+  defp arg_with_default(arg, value) do
+    arg <> @default_value_delimiter <> value
   end
 
   defp normalize_specs(spec_str) do
