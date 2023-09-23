@@ -203,7 +203,7 @@ defmodule NukeCroma do
             case Enum.flat_map(els, fn {spec_name, _, e} ->
                    children_to_list.(e, spec_name)
                  end) do
-              [arg, spec, default_value] ->
+              [arg, spec, default_value | _] ->
                 [arg_with_default(arg, default_value), adjust_spec(spec, arg)]
 
               [arg, default_value] ->
@@ -240,13 +240,8 @@ defmodule NukeCroma do
     |> Enum.join(@spec_delimiter)
   end
 
-  def adjust_spec(spec, arg) do
-    if String.match?(arg, ~r{^[a-z]}) do
-      arg <> @spec_delimiter <> spec
-      # spec
-    else
-      spec
-    end
+  def adjust_spec(spec, _arg) do
+    spec
   end
 
   defp maybe_insert_default_header(node, _func_name, _func_arguments, false) do
