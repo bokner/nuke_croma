@@ -50,11 +50,21 @@ defmodule CromaExpand do
       flat, acc ->
         acc ++ [flat]
     end)
+    |> then(fn res ->
+      ## Remove the default header if there is only one function clause
+      ## AND there is no default values in it
+      if length(res) == 3 && Sourceror.to_string(Enum.at(res, 1)) |> String.contains?("\\\\") do
+        res
+      else
+        ## The default function header is below @spec
+        List.delete_at(res, 1)
+      end
+    end)
   end
 
   def insert_def(block_zipper, {:__block__, _, children} = _block) do
     Logger.debug("Block within spec")
-    # Z.insert_left(zipper, block)
+
     Enum.reduce(children, block_zipper, fn def_child, block_acc ->
       Z.insert_left(block_acc, def_child)
     end)
