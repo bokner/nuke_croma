@@ -182,52 +182,22 @@ defmodule NukeCroma do
         |> normalize_specs()
       end)
 
-    children_to_list = fn els, spec_name ->
-      case els do
-        nil -> [to_string(spec_name)]
-        [] -> [to_string(spec_name)]
-        [single] -> Enum.map(1..2, fn _ -> Sourceror.to_string(single) end)
-        list -> Enum.map(list, fn el -> Sourceror.to_string(el) end)
-      end
-    end
-
-    args_and_specs =
-      Enum.map(
-        signature_children,
-        fn
-          {:"::", _, els} ->
-            [arg, spec] = children_to_list.(els, nil)
-            [arg, adjust_spec(spec, arg)]
-
-          {:"\\\\", _, els} ->
-            case Enum.flat_map(els, fn {spec_name, _, e} ->
-                   children_to_list.(e, spec_name)
-                 end) do
-              [arg, spec, default_value | _] ->
-                [arg_with_default(arg, default_value), adjust_spec(spec, arg)]
-
-              [arg, default_value] ->
-                [arg_with_default(arg, default_value), "any()"]
-            end
-
-          {:__block__, _, els} ->
-            [arg, spec] = children_to_list.(els, nil)
-            [arg, adjust_spec(spec, arg)]
-        end
-      )
-
     original_source = zipper_to_source(signature) |> normalize_specs
-    # ## Update and collect args
-    {args, updated_source} =
-      Enum.reduce(
-        Enum.zip(original_specs, args_and_specs),
-        {[], original_source},
-        fn {orig, [arg, spec]}, {args, source_acc} ->
-          {[arg | args], String.replace(source_acc, orig, spec)}
-        end
-      )
 
-    {Enum.reverse(args), updated_source}
+    parsed_specs =
+      Enum.map(original_specs, fn spec ->
+        case String.split(spec, [" :: ", @default_value_delimiter]) do
+          [arg] -> [arg, ""]
+          [arg, spec] -> [arg, spec]
+          [arg, spec, default_value] -> [arg_with_default(arg, default_value), spec]
+        end
+      end)
+
+    {parsed_specs |> Enum.map(fn [arg, _spec] -> arg end),
+     Enum.zip(original_specs, parsed_specs)
+     |> Enum.reduce(original_source, fn {orig, [_, parsed]}, acc ->
+       String.replace(acc, orig, parsed)
+     end)}
   end
 
   defp arg_with_default(arg, value) do
