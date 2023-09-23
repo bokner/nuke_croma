@@ -186,7 +186,7 @@ defmodule NukeCroma do
 
     parsed_specs =
       Enum.map(original_specs, fn spec ->
-        case String.split(spec, [" :: "]) do
+        case String.split(spec, [" :: "], parts: 2) do
           [arg] -> [arg, "any()"]
           [arg, spec] ->
             case String.split(spec, @default_value_delimiter) do
@@ -200,7 +200,7 @@ defmodule NukeCroma do
     {parsed_specs |> Enum.map(fn [arg, _spec] -> arg end),
      Enum.zip(original_specs, parsed_specs)
      |> Enum.reduce(original_source, fn {orig, [_, parsed]}, acc ->
-       String.replace(acc, orig, parsed)
+       String.replace(acc, orig, parsed, global: false)
      end)}
   end
 
@@ -211,6 +211,7 @@ defmodule NukeCroma do
   defp normalize_specs(spec_str) do
     String.split(spec_str, " ::")
     |> Enum.map(&String.trim/1)
+    |> Enum.map(fn str -> String.split(str) |> Enum.join(" ") end)
     |> Enum.join(@spec_delimiter)
   end
 
