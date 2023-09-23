@@ -186,10 +186,14 @@ defmodule NukeCroma do
 
     parsed_specs =
       Enum.map(original_specs, fn spec ->
-        case String.split(spec, [" :: ", @default_value_delimiter]) do
-          [arg] -> [arg, ""]
-          [arg, spec] -> [arg, spec]
-          [arg, spec, default_value] -> [arg_with_default(arg, default_value), spec]
+        case String.split(spec, [" :: "]) do
+          [arg] -> [arg, "any()"]
+          [arg, spec] ->
+            case String.split(spec, @default_value_delimiter) do
+              [s, default_value] ->
+                [arg_with_default(arg, default_value), s]
+              [s] -> [arg, s]
+            end
         end
       end)
 
