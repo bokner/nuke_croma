@@ -18,8 +18,6 @@ defmodule NukeCroma do
       |> Sourceror.parse_string!()
       |> Z.zip()
       |> Z.traverse(0, fn node, acc ->
-        node = Macro.expand(node, __ENV__)
-
         case collect_multiheads(node) do
           nil ->
             {node, acc}
@@ -31,9 +29,6 @@ defmodule NukeCroma do
             func_name = hd(signature_children) |> elem(0)
 
             case heads_to_clauses(func_name, heads) do
-              # [] ->
-              #   {node, acc}
-
               :error ->
                 {node, acc}
 
@@ -187,10 +182,11 @@ defmodule NukeCroma do
         |> normalize_specs()
       end)
 
-      children_to_list = fn els, spec_name ->
+    children_to_list = fn els, spec_name ->
       case els do
         nil -> [to_string(spec_name)]
         [] -> [to_string(spec_name)]
+        [single] -> Enum.map(1..2, fn _ -> Sourceror.to_string(single) end)
         list -> Enum.map(list, fn el -> Sourceror.to_string(el) end)
       end
     end
@@ -205,12 +201,18 @@ defmodule NukeCroma do
 
           {:"\\\\", _, els} ->
             case Enum.flat_map(els, fn {spec_name, _, e} ->
-              children_to_list.(e, spec_name) end) do
+                   children_to_list.(e, spec_name)
+                 end) do
               [arg, spec, default_value] ->
                 [arg_with_default(arg, default_value), adjust_spec(spec, arg)]
+
               [arg, default_value] ->
                 [arg_with_default(arg, default_value), "any()"]
-              end
+            end
+
+          {:__block__, _, els} ->
+            [arg, spec] = children_to_list.(els, nil)
+            [arg, adjust_spec(spec, arg)]
         end
       )
 
