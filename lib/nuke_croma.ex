@@ -10,7 +10,7 @@ defmodule NukeCroma do
   @moduledoc """
   Documentation for `NukeCroma`.
   """
-  def replace_multiheads(source) do
+  def remove_croma(source) do
     Sourceror.Zipper.Inspect.default_inspect_as(:as_code)
 
     {zipper, multihead_func_count} =
@@ -137,12 +137,11 @@ defmodule NukeCroma do
 
     func_args = Enum.join(function_arg_names, ", ")
 
-    func_source =
-      """
-      #{get_func_kind()} #{func_name}(#{func_args}) do
-        #{func_body}
-      end
-      """
+    func_source = """
+    #{get_func_kind()} #{func_name}(#{func_args}) do
+      #{func_body}
+    end
+    """
 
     Sourceror.parse_string!(func_source)
   end
@@ -182,19 +181,31 @@ defmodule NukeCroma do
         |> normalize_specs()
       end)
 
-    original_source = zipper_to_source(signature) |> normalize_specs
+    original_source = zipper_to_source(signature) |> normalize_specs()
 
     parsed_specs =
       Enum.map(original_specs, fn spec ->
-        case String.split(spec, [" :: "], parts: 2) do
-          [arg] -> [arg, "any()"]
-          [arg, spec] ->
-            case String.split(spec, @default_value_delimiter) do
-              [s, default_value] ->
-                [arg_with_default(arg, default_value), s]
-              [s] -> [arg, s]
-            end
-        end
+        ## Get default value, if any
+        {spec_no_value, default_value} =
+          case String.split(spec, @default_value_delimiter) do
+            [s] -> {s, nil}
+            [s, default_value] -> {s, default_value}
+          end
+
+        [arg, parsed_spec] =
+          case String.split(spec_no_value, [" :: "], parts: 2) do
+            [arg_or_spec] ->
+              if String.contains?(arg_or_spec, "()") do
+                ["_arg", arg_or_spec]
+              else
+                [arg_or_spec, "any()"]
+              end
+
+            arg_and_spec ->
+              arg_and_spec
+          end
+
+        [arg_with_default(arg, default_value), parsed_spec]
       end)
 
     {parsed_specs |> Enum.map(fn [arg, _spec] -> arg end),
@@ -202,6 +213,10 @@ defmodule NukeCroma do
      |> Enum.reduce(original_source, fn {orig, [_, parsed]}, acc ->
        String.replace(acc, orig, parsed, global: false)
      end)}
+  end
+
+  defp arg_with_default(arg, nil) do
+    arg
   end
 
   defp arg_with_default(arg, value) do
@@ -256,12 +271,11 @@ defmodule NukeCroma do
     func_kind = get_func_kind()
     {func_args, guard} = parse_match(match)
 
-    clause =
-      """
-      #{func_kind} #{func_name}(#{func_args}) #{guard} do
-        #{zipper_to_source(action)}
-      end
-      """
+    clause = """
+    #{func_kind} #{func_name}(#{func_args}) #{guard} do
+      #{zipper_to_source(action)}
+    end
+    """
 
     clause
     |> Sourceror.parse_string()
