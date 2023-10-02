@@ -1,11 +1,11 @@
 defmodule NukeCroma do
-  use Croma
   require Logger
 
   alias Sourceror.Zipper, as: Z
 
   @spec_delimiter " :: "
   @default_value_delimiter ~S" \\"
+  @arg_placeholder "#{__MODULE__}____arg___placeholder___"
 
   @moduledoc """
   Documentation for `NukeCroma`.
@@ -71,10 +71,11 @@ defmodule NukeCroma do
     end
   end
 
-  def collect_multiheads(%Z{node: {func_kind, _node_meta, _children}} = zipper)
+  def collect_multiheads(%Z{node: {func_kind, node_meta, _children}} = zipper)
       when func_kind in [:defun, :defunp] do
     # Lazy solution - don't want to drag this through traversal process
     save_func_kind(func_kind)
+    save_meta(node_meta)
 
     zipper
     |> Z.down()
@@ -150,11 +151,20 @@ defmodule NukeCroma do
     Process.put(:func_kind, (func_kind == :defun && :def) || :defp)
   end
 
-  def get_func_kind() do
+  defp save_meta(meta) do
+    Process.put(:node_meta, meta)
+  end
+
+  defp get_func_kind() do
     Process.get(:func_kind)
   end
 
+  defp get_node_meta() do
+    Process.get(:node_meta)
+  end
+
   def create_spec(signature) do
+    leading_comments = get_node_meta()[:leading_comments] || []
     {function_args, patched_spec} = patch_spec(signature)
 
     {function_args,
@@ -163,6 +173,7 @@ defmodule NukeCroma do
      |> then(fn
        {:ok, ast} ->
          ast
+         |> Sourceror.prepend_comments(leading_comments)
          |> Z.zip()
          |> Z.root()
 
@@ -196,7 +207,7 @@ defmodule NukeCroma do
           case String.split(spec_no_value, [" :: "], parts: 2) do
             [arg_or_spec] ->
               if String.contains?(arg_or_spec, "()") do
-                ["_arg", arg_or_spec]
+                [@arg_placeholder, arg_or_spec]
               else
                 [arg_or_spec, "any()"]
               end
@@ -208,7 +219,15 @@ defmodule NukeCroma do
         [arg_with_default(arg, default_value), parsed_spec]
       end)
 
-    {parsed_specs |> Enum.map(fn [arg, _spec] -> arg end),
+    {parsed_specs
+     |> Enum.with_index()
+     |> Enum.map(fn {[arg, _spec], idx} ->
+       if String.starts_with?(arg, @arg_placeholder) do
+         String.replace(arg, @arg_placeholder, "arg#{idx}", global: false)
+       else
+         arg
+       end
+     end),
      Enum.zip(original_specs, parsed_specs)
      |> Enum.reduce(original_source, fn {orig, [_, parsed]}, acc ->
        String.replace(acc, orig, parsed, global: false)
